@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "key-dash-ranking",
+  "account_id": "259a20b1c0ba03d99de98300cfca9dda",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-21",
+  "workers_dev": true,
+  "vars": { "ALLOWED_ORIGIN": "https://yuk1-kondo.github.io" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "key-dash-scores", "database_id": "8da81b7c-5d1a-40f0-9ab1-1f751c6378b2" }
+  ],
+  "triggers": { "crons": ["17 3 * * *"] },
+  "observability": { "enabled": false }
+}

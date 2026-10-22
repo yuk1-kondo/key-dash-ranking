@@ -1,0 +1,144 @@
+import { replay, RULES_VERSION } from './replay.js';
+const MAX_BODY = 80000;
+class HttpError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+const json = (value, status = 200) => new Response(JSON.stringify(value), {
+  status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+});
+async function hash(value) {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+async function body(request) {
+  if (!request.headers.get('Content-Type')?.startsWith('application/json')) throw new HttpError(415, 'Use application/json');
+  const reader = request.body?.getReader();
+  if (!reader) throw new HttpError(400, 'Missing JSON');
+  const chunks = []; let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > MAX_BODY) { await reader.cancel(); throw new HttpError(413, 'Request too large'); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  try {
+    const result = JSON.parse(new TextDecoder().decode(bytes));
+    if (!result || Array.isArray(result) || typeof result !== 'object') throw new Error();
+    return result;
+  } catch { throw new HttpError(400, 'Invalid JSON'); }
+}
+async function limit(db, bucket, maximum, windowMs, now) {
+  const window = Math.floor(now / windowMs);
+  const result = await db.prepare(`INSERT INTO request_limits(bucket,count,expires_at) VALUES(?,1,?)
+    ON CONFLICT(bucket) DO UPDATE SET count=count+1 RETURNING count`)
+    .bind(`${bucket}:${window}`, (window + 1) * windowMs).first();
+  if (result.count > maximum) throw new HttpError(429, 'Too many requests. Try later.');
+}
+function board(mode, pack) {
+  if (![30, 60].includes(mode) || !['english', 'code'].includes(pack)) throw new HttpError(400, 'Choose 30s or 60s / English or Code');
+}
+async function player(request, db) {
+  const token = request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+  if (!token) throw new HttpError(401, 'Player registration required');
+  const result = await db.prepare('SELECT id,name FROM players WHERE token_hash=?').bind(await hash(token)).first();
+  if (!result) throw new HttpError(401, 'Player key not recognized');
+  return result;
+}
+async function route(request, env, now) {
+  const url = new URL(request.url), path = url.pathname;
+  if (request.method === 'GET' && path === '/v1/health') return json({ ok: true, rules: RULES_VERSION });
+  if (request.method === 'GET' && path === '/v1/leaderboard') {
+    const mode = Number(url.searchParams.get('mode') || 30), pack = url.searchParams.get('pack') || 'english';
+    board(mode, pack);
+    const { results } = await env.DB.prepare(`SELECT p.name,s.wpm,s.accuracy,s.words,s.recorded_at
+      FROM scores s JOIN players p ON p.id=s.player_id WHERE s.mode=? AND s.pack=?
+      ORDER BY s.wpm DESC,s.accuracy DESC,s.recorded_at ASC,s.player_id ASC LIMIT 100`).bind(mode, pack).all();
+    return json({ mode, pack, rules: RULES_VERSION, scores: results.map((score, index) => ({ rank: index + 1, ...score })) });
+  }
+  if (request.method !== 'POST') throw new HttpError(404, 'Not found');
+  // Store a daily hash rather than a raw IP. This is an abuse limit, not identity.
+  const address = request.headers.get('CF-Connecting-IP') || 'local';
+  const fingerprint = await hash(`${Math.floor(now / 86400000)}:${address}`);
+  await limit(env.DB, `write:${fingerprint}`, 180, 3600000, now);
+  if (path === '/v1/players') {
+    await limit(env.DB, `register:${fingerprint}`, 5, 86400000, now);
+    const { name } = await body(request);
+    if (typeof name !== 'string' || !/^[A-Za-z0-9_-]{3,12}$/.test(name)) throw new HttpError(400, 'Name: 3-12 letters, digits, _ or -');
+    const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+    const token = [...tokenBytes].map(value => value.toString(16).padStart(2, '0')).join('');
+    const id = crypto.randomUUID();
+    const result = await env.DB.prepare('INSERT INTO players(id,name,token_hash,created_at) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING')
+      .bind(id, name, await hash(token), now).run();
+    if (!result.meta.changes) throw new HttpError(409, 'Name already taken. Choose another.');
+    return json({ id, name, token }, 201);
+  }
+  const identity = await player(request, env.DB);
+  if (path === '/v1/runs') {
+    const { mode, pack, rules } = await body(request); board(mode, pack);
+    if (rules !== RULES_VERSION) throw new HttpError(409, 'Please update KEY DASH');
+    await limit(env.DB, `run:${identity.id}`, 60, 3600000, now);
+    const id = crypto.randomUUID(), seed = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
+    const expires = now + 10 * 60000;
+    await env.DB.prepare('INSERT INTO runs(id,player_id,mode,pack,seed,created_at,expires_at) VALUES(?,?,?,?,?,?,?)')
+      .bind(id, identity.id, mode, pack, seed, now, expires).run();
+    return json({ id, seed, mode, pack, rules: RULES_VERSION, expires_at: expires }, 201);
+  }
+  const match = path.match(/^\/v1\/runs\/([a-f0-9-]{36})\/score$/);
+  if (!match) throw new HttpError(404, 'Not found');
+  const run = await env.DB.prepare('SELECT * FROM runs WHERE id=? AND player_id=?').bind(match[1], identity.id).first();
+  if (!run) throw new HttpError(404, 'Challenge not found');
+  if (run.receipt) return json(JSON.parse(run.receipt)); // Idempotent after a lost response.
+  if (now > run.expires_at) throw new HttpError(410, 'Challenge expired. Start a new run.');
+  if (now - run.created_at < run.mode * 1000) throw new HttpError(409, 'Challenge has not finished');
+  const data = await body(request);
+  let result;
+  try { result = replay(run, data.events); }
+  catch (error) { throw new HttpError(400, error.message); }
+  if (!result.wpm || !result.words) throw new HttpError(400, 'Complete at least one word to rank');
+  const receipt = JSON.stringify({ ...result, name: identity.name, mode: run.mode, pack: run.pack, recorded_at: now });
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO scores(player_id,mode,pack,wpm,accuracy,words,recorded_at,run_id)
+      SELECT player_id,mode,pack,?,?,?,?,id FROM runs WHERE id=? AND receipt IS NULL
+      ON CONFLICT(player_id,mode,pack) DO UPDATE SET wpm=excluded.wpm,accuracy=excluded.accuracy,
+      words=excluded.words,recorded_at=excluded.recorded_at,run_id=excluded.run_id
+      WHERE excluded.wpm>scores.wpm OR (excluded.wpm=scores.wpm AND excluded.accuracy>scores.accuracy)`)
+      .bind(result.wpm, result.accuracy, result.words, now, run.id),
+    env.DB.prepare('UPDATE runs SET receipt=? WHERE id=? AND receipt IS NULL').bind(receipt, run.id)
+  ]);
+  const stored = await env.DB.prepare('SELECT receipt FROM runs WHERE id=?').bind(run.id).first();
+  return json(JSON.parse(stored.receipt));
+}
+export async function handle(request, env, now = Date.now()) {
+  const origin = request.headers.get('Origin');
+  const allowed = env.ALLOWED_ORIGIN || 'https://yuk1-kondo.github.io';
+  let response;
+  try {
+    if (origin && origin !== allowed) throw new HttpError(403, 'Origin not allowed');
+    if (request.method === 'OPTIONS') {
+      response = new Response(null, { status: 204, headers: {
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '600'
+      } });
+    } else response = await route(request, env, now);
+  } catch (error) {
+    // Do not include SQL, request bodies or player keys in errors/logs.
+    response = json({ error: error instanceof HttpError ? error.message : 'Service temporarily unavailable' }, error.status || 503);
+  }
+  response.headers.set('Access-Control-Allow-Origin', allowed);
+  response.headers.set('Vary', 'Origin');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  return response;
+}
+export default {
+  fetch(request, env) { return handle(request, env); },
+  async scheduled(_controller, env) {
+    const now = Date.now();
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM runs WHERE expires_at<?').bind(now - 86400000),
+      env.DB.prepare('DELETE FROM request_limits WHERE expires_at<?').bind(now)
+    ]);
+  }
+};
