@@ -104,3 +104,11 @@ test('server dictionaries match the native source exactly', { skip: !existsSync(
     assert.deepEqual([...section.matchAll(/"([a-z]+)"/g)].map(match => match[1]), dictionaries[pack]);
   }
 });
+
+test('lost registration response can be retried with a client-generated key', async () => {
+  const token = 'a'.repeat(64);
+  const first = await request('/players', { name: 'RetryPlayer', token });
+  const second = await request('/players', { name: 'RetryPlayer', token });
+  assert.equal(first.status, 201); assert.deepEqual(second.data, first.data);
+  assert.equal((await request('/players', { name: 'RetryPlayer', token: 'b'.repeat(64) })).status, 409);
+});

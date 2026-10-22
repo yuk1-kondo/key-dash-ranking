@@ -65,14 +65,19 @@ async function route(request, env, now) {
   await limit(env.DB, `write:${fingerprint}`, 180, 3600000, now);
   if (path === '/v1/players') {
     await limit(env.DB, `register:${fingerprint}`, 5, 86400000, now);
-    const { name } = await body(request);
+    const { name, token: proposedToken } = await body(request);
     if (typeof name !== 'string' || !/^[A-Za-z0-9_-]{3,12}$/.test(name)) throw new HttpError(400, 'Name: 3-12 letters, digits, _ or -');
+    if (proposedToken !== undefined && (typeof proposedToken !== 'string' || !/^[a-f0-9]{64}$/.test(proposedToken))) throw new HttpError(400, 'Invalid player key');
     const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
-    const token = [...tokenBytes].map(value => value.toString(16).padStart(2, '0')).join('');
+    const token = proposedToken || [...tokenBytes].map(value => value.toString(16).padStart(2, '0')).join('');
     const id = crypto.randomUUID();
     const result = await env.DB.prepare('INSERT INTO players(id,name,token_hash,created_at) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING')
       .bind(id, name, await hash(token), now).run();
-    if (!result.meta.changes) throw new HttpError(409, 'Name already taken. Choose another.');
+    if (!result.meta.changes) {
+      const existing = await env.DB.prepare('SELECT id,name FROM players WHERE name=? AND token_hash=?').bind(name, await hash(token)).first();
+      if (existing) return json({ ...existing, token }, 201);
+      throw new HttpError(409, 'Name already taken. Choose another.');
+    }
     return json({ id, name, token }, 201);
   }
   const identity = await player(request, env.DB);
