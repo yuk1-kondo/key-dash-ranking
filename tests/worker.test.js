@@ -112,3 +112,64 @@ test('lost registration response can be retried with a client-generated key', as
   assert.equal(first.status, 201); assert.deepEqual(second.data, first.data);
   assert.equal((await request('/players', { name: 'RetryPlayer', token: 'b'.repeat(64) })).status, 409);
 });
+async function contactLink(token, now = 1000000) {
+  const result = await request('/contact-links', {}, token, now); assert.equal(result.status, 201); return result.data;
+}
+const contactPurpose = 'competition-results-v1';
+test('private optional email is linked by a short-lived scoped code, never returned publicly', async () => {
+  const player = await register(), link = await contactLink(player.token);
+  assert.match(link.code, /^[A-HJ-NP-Z2-9]{12}$/);
+  assert.equal(link.url.includes(player.token), false);
+  const lookup = await request('/contact-links/lookup', { code: link.code });
+  assert.equal(lookup.status, 200); assert.equal(lookup.data.name, player.name); assert.equal(lookup.data.has_contact, false);
+  const saved = await request('/contact', { code: link.code, action: 'save', email: 'Winner+game@EXAMPLE.test', consent: true, purpose: contactPurpose });
+  assert.equal(saved.status, 200); assert.equal(saved.data.saved, true); assert.equal(JSON.stringify(saved.data).includes('@'), false);
+  const row = env.DB.sqlite.prepare('SELECT * FROM player_contacts WHERE player_id=?').get(player.id);
+  assert.equal(row.email, 'Winner+game@example.test'); assert.equal(row.consent_version, contactPurpose);
+  const board = await request('/leaderboard'); assert.equal(JSON.stringify(board.data).includes('@'), false);
+  assert.equal((await request('/players')).status, 404);
+  const next = await contactLink(player.token, 1000100);
+  const after = await request('/contact-links/lookup', { code: next.code }, undefined, 1000100);
+  assert.deepEqual(Object.keys(after.data).sort(), ['expires_at', 'has_contact', 'name', 'purpose']);
+  assert.equal(after.data.has_contact, true); assert.equal(JSON.stringify(after.data).includes(row.email), false);
+});
+test('email requires explicit current-purpose consent and accepts no control characters or malformed addresses', async () => {
+  const player = await register(), link = await contactLink(player.token);
+  const payload = { code: link.code, action: 'save', email: 'a@example.test', consent: true, purpose: contactPurpose };
+  for (const change of [{ consent: false }, { consent: 'true' }, { purpose: 'newsletter' }, { email: 'not-email' }, { email: 'a@example.test\r\nBcc: b@example.test' }, { email: '<x>@example.test' }, { email: 'x..x@example.test' }, { email: 'x@-example.test' }]) {
+    assert.equal((await request('/contact', { ...payload, ...change })).status, 400);
+  }
+  assert.equal(env.DB.sqlite.prepare('SELECT count(*) AS n FROM player_contacts').get().n, 0);
+  assert.equal((await request('/contact', payload)).status, 200);
+});
+test('contact codes require player auth to create, expire exactly, and cannot grant score access', async () => {
+  assert.equal((await request('/contact-links', {})).status, 401);
+  const player = await register(), link = await contactLink(player.token);
+  assert.equal((await request('/contact-links/lookup', { code: link.code }, undefined, 1600000)).status, 410);
+  assert.equal((await request('/contact', { code: link.code, action: 'delete' }, undefined, 1600000)).status, 410);
+  assert.equal((await request('/runs', { mode: 30, pack: 'english', rules: 1 }, link.code)).status, 401);
+  assert.equal((await request('/contact-links/lookup', { code: 'guessed' })).status, 400);
+});
+test('a new code replaces an old unused code; only the same contact mutation can be retried', async () => {
+  const player = await register(), first = await contactLink(player.token), second = await contactLink(player.token, 1000100);
+  assert.equal((await request('/contact-links/lookup', { code: first.code }, undefined, 1000100)).status, 410);
+  const payload = { code: second.code, action: 'save', email: 'a@example.test', consent: true, purpose: contactPurpose };
+  const saved = await request('/contact', payload, undefined, 1000200), retry = await request('/contact', payload, undefined, 1000300);
+  assert.equal(saved.status, 200); assert.deepEqual(saved.data, retry.data);
+  assert.equal((await request('/contact', { ...payload, email: 'b@example.test' }, undefined, 1000300)).status, 409);
+  assert.equal((await request('/contact-links/lookup', { code: second.code }, undefined, 1000300)).status, 409);
+});
+test('contact update and withdrawal affect only the code owner, retaining scores and other players', async () => {
+  const owner = await register('ContactOwner'), other = await register('ContactOther');
+  for (const identity of [owner, other]) {
+    const link = await contactLink(identity.token);
+    assert.equal((await request('/contact', { code: link.code, action: 'save', email: `${identity.name}@example.test`, consent: true, purpose: contactPurpose })).status, 200);
+  }
+  const update = await contactLink(owner.token, 1000100);
+  assert.equal((await request('/contact', { code: update.code, action: 'save', email: 'new@example.test', consent: true, purpose: contactPurpose }, undefined, 1000100)).status, 200);
+  const remove = await contactLink(owner.token, 1000200);
+  assert.equal((await request('/contact', { code: remove.code, action: 'delete' }, undefined, 1000200)).status, 200);
+  assert.equal(env.DB.sqlite.prepare('SELECT count(*) AS n FROM player_contacts WHERE player_id=?').get(owner.id).n, 0);
+  assert.equal(env.DB.sqlite.prepare('SELECT count(*) AS n FROM player_contacts WHERE player_id=?').get(other.id).n, 1);
+  assert.equal(env.DB.sqlite.prepare('SELECT count(*) AS n FROM players').get().n, 2);
+});

@@ -11,12 +11,35 @@
   <link rel="stylesheet" href="style.css">
   <script src="config.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="contact.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#ranking">ランキングへ</a>
   <div class="page">
-    <header><a class="brand" href="./" aria-label="KEY DASH ホーム">KEY DASH</a><a href="#how-to">遊び方</a></header>
+    <header><a class="brand" href="./" aria-label="KEY DASH ホーム">KEY DASH</a><nav aria-label="サイト内ナビゲーション"><button id="open-contact" type="button">連絡先（任意）</button><a href="#how-to">遊び方</a></nav></header>
     <main>
+      <section id="contact" class="contact-section" aria-labelledby="contact-title" hidden>
+        <h1 id="contact-title" tabindex="-1">連絡先の登録</h1>
+        <p class="contact-intro">大会などの結果連絡に使うメールアドレスを、任意で登録できます。ランキングには公開しません。</p>
+        <form id="contact-code-form">
+          <label for="contact-code">アプリに表示された連絡先コード</label>
+          <div class="code-entry"><input id="contact-code" name="code" type="text" placeholder="ABCD-EFGH-JKLM" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" required><button type="submit">確認する</button></div>
+          <p class="form-hint">KEY DASHで「5 Online → 6 Contact」を選んでください。コードは10分間有効です。</p>
+        </form>
+        <button id="contact-change-code" class="secondary" type="button" hidden>別のコードを使う</button>
+        <form id="contact-details-form" hidden>
+          <p id="contact-player" class="contact-player"></p>
+          <label for="contact-email">連絡用メールアドレス</label>
+          <input id="contact-email" name="email" type="email" maxlength="254" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
+          <label class="consent"><input id="contact-consent" type="checkbox" required><span>大会などの結果連絡のために、運営者がこのメールアドレスを保存・利用することに同意します。</span></label>
+          <p class="form-hint">名前と紐づけて非公開で保存し、削除するまで保持します。メールの所有確認は未実施です。連絡は管理者が行います。</p>
+          <div class="contact-actions"><button id="contact-save" type="submit">連絡先を保存</button><button id="contact-remove" class="secondary" type="button" hidden>登録済みの連絡先を削除</button></div>
+        </form>
+        <div id="contact-delete-confirm" class="delete-confirm" hidden><p>保存したメールアドレスを削除します。ランキングの記録は残ります。</p><button id="contact-delete-yes" type="button">削除する</button><button id="contact-delete-no" class="secondary" type="button">戻る</button></div>
+        <p id="contact-status" role="status" aria-live="polite" tabindex="-1"></p>
+        <p class="form-hint">変更・削除する際は、アプリで新しい連絡先コードを発行してください。メールの登録状況にかかわらずランキングに参加できます。</p>
+        <button id="close-contact" class="secondary" type="button">ランキングに戻る</button>
+      </section>
       <section class="intro" aria-labelledby="title">
         <h1 id="title"><span>小さなキーで、</span><wbr><span>世界に挑戦。</span></h1>
         <p>CardputerZeroのタイピング<wbr><span>ランキング</span></p>
@@ -41,7 +64,7 @@
         <ol><li><span>KEY DASHを起動</span></li><li><span>オンラインで<br>プレイヤー名を入力</span></li><li><span>30秒または60秒に挑戦</span></li></ol>
       </section>
     </main>
-    <footer><p>記録はオンラインチャレンジから登録されます。</p><details><summary>記録とプレイヤー名について</summary><p>アプリのメニューで「5 Online」を選び、名前を登録してください。GitHubアカウントは不要です。名前は3〜12文字の英数字・_・-が使えます。名前とベストスコア、正確率、記録日が公開されます。</p><p>順位はWPM、正確率、先に記録した日時の順で決まります。WPMは1単語を5文字として計算します。練習モードはランキング対象外です。サーバーは入力履歴から記録を再計算しますが、人間による入力を証明する仕組みではありません。</p><p>プレイヤーキーは端末内に保存されます。アカウントのパスワード復旧機能はありません。端末変更に備え、設定フォルダーのonline-player.jsonを非公開でバックアップしてください。削除を希望する場合は、<a href="https://github.com/yuk1-kondo/key-dash-ranking/issues">ランキング用リポジトリのIssue</a>から管理者にご連絡ください。キーをIssueに貼り付けないでください。</p></details></footer>
+    <footer><p>記録はオンラインチャレンジから登録されます。</p><details><summary>記録とプレイヤー名について</summary><p>アプリのメニューで「5 Online」を選び、名前を登録してください。GitHubアカウントは不要です。名前は3〜12文字の英数字・_・-が使えます。名前とベストスコア、正確率、記録日が公開されます。</p><p>順位はWPM、正確率、先に記録した日時の順で決まります。WPMは1単語を5文字として計算します。練習モードはランキング対象外です。サーバーは入力履歴から記録を再計算しますが、人間による入力を証明する仕組みではありません。</p><p>プレイヤーキーは端末内に保存されます。アカウントのパスワード復旧機能はありません。端末変更に備え、設定フォルダーのonline-player.jsonを非公開でバックアップしてください。削除を希望する場合は、<a href="https://github.com/yuk1-kondo/key-dash-ranking/issues">ランキング用リポジトリのIssue</a>から管理者にご連絡ください。キーをIssueに貼り付けないでください。</p></details><p class="credits">StackChanのイラストはM5Stack公式K151を参考にした非公式の表現です。Stack-chan: ししかわ・コミュニティ。<a href="https://docs.m5stack.com/en/StackChan">M5Stack公式製品</a> / <a href="https://github.com/stack-chan/stack-chan">作品ページ</a></p></footer>
   </div>
 </body>
 </html>

@@ -21,3 +21,14 @@ CREATE TABLE IF NOT EXISTS request_limits (
  bucket TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS limits_expiry ON request_limits(expires_at);
+-- Optional private contact details. Public score queries never join this table.
+CREATE TABLE IF NOT EXISTS player_contacts (
+ player_id TEXT PRIMARY KEY REFERENCES players(id), email TEXT NOT NULL,
+ consent_version TEXT NOT NULL, consented_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS contact_links (
+ code_hash TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id),
+ expires_at INTEGER NOT NULL, used_at INTEGER, request_hash TEXT, action TEXT
+);
+CREATE INDEX IF NOT EXISTS contact_links_expiry ON contact_links(expires_at);
+CREATE INDEX IF NOT EXISTS contact_links_player ON contact_links(player_id);

@@ -9,7 +9,7 @@ await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await cp(path.join(root, 'site'), output, { recursive: true });
 let html = await readFile(path.join(output, 'index.html'), 'utf8');
-for (const filename of ['style.css', 'app.js', 'config.js']) {
+for (const filename of ['style.css', 'app.js', 'contact.js', 'config.js']) {
   const content = await readFile(path.join(output, filename));
   const hash = createHash('sha256').update(content).digest('hex').slice(0, 12);
   const extension = path.extname(filename);

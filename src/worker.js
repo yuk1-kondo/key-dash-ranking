@@ -1,51 +1,8 @@
 import { replay, RULES_VERSION } from './replay.js';
-const MAX_BODY = 80000;
-class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-const json = (value, status = 200) => new Response(JSON.stringify(value), {
-  status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
-});
-async function hash(value) {
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-}
-async function body(request) {
-  if (!request.headers.get('Content-Type')?.startsWith('application/json')) throw new HttpError(415, 'Use application/json');
-  const reader = request.body?.getReader();
-  if (!reader) throw new HttpError(400, 'Missing JSON');
-  const chunks = []; let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.length;
-    if (size > MAX_BODY) { await reader.cancel(); throw new HttpError(413, 'Request too large'); }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size); let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  try {
-    const result = JSON.parse(new TextDecoder().decode(bytes));
-    if (!result || Array.isArray(result) || typeof result !== 'object') throw new Error();
-    return result;
-  } catch { throw new HttpError(400, 'Invalid JSON'); }
-}
-async function limit(db, bucket, maximum, windowMs, now) {
-  const window = Math.floor(now / windowMs);
-  const result = await db.prepare(`INSERT INTO request_limits(bucket,count,expires_at) VALUES(?,1,?)
-    ON CONFLICT(bucket) DO UPDATE SET count=count+1 RETURNING count`)
-    .bind(`${bucket}:${window}`, (window + 1) * windowMs).first();
-  if (result.count > maximum) throw new HttpError(429, 'Too many requests. Try later.');
-}
+import { HttpError, json, body, hash, limit, player } from './http.js';
+import { contactRoute } from './contacts.js';
 function board(mode, pack) {
   if (![30, 60].includes(mode) || !['english', 'code'].includes(pack)) throw new HttpError(400, 'Choose 30s or 60s / English or Code');
-}
-async function player(request, db) {
-  const token = request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
-  if (!token) throw new HttpError(401, 'Player registration required');
-  const result = await db.prepare('SELECT id,name FROM players WHERE token_hash=?').bind(await hash(token)).first();
-  if (!result) throw new HttpError(401, 'Player key not recognized');
-  return result;
 }
 async function route(request, env, now) {
   const url = new URL(request.url), path = url.pathname;
@@ -80,6 +37,7 @@ async function route(request, env, now) {
     }
     return json({ id, name, token }, 201);
   }
+  if (path.startsWith('/v1/contact')) return contactRoute(request, env, now, fingerprint);
   const identity = await player(request, env.DB);
   if (path === '/v1/runs') {
     const { mode, pack, rules } = await body(request); board(mode, pack);
@@ -143,7 +101,8 @@ export default {
     const now = Date.now();
     await env.DB.batch([
       env.DB.prepare('DELETE FROM runs WHERE expires_at<?').bind(now - 86400000),
-      env.DB.prepare('DELETE FROM request_limits WHERE expires_at<?').bind(now)
+      env.DB.prepare('DELETE FROM request_limits WHERE expires_at<?').bind(now),
+      env.DB.prepare('DELETE FROM contact_links WHERE expires_at<?').bind(now)
     ]);
   }
 };
