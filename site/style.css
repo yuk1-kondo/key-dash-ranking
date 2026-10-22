@@ -12,3 +12,5 @@ h1 span,.intro p span{white-space:nowrap}
 @media(max-width:380px){.brand{font-size:20px;letter-spacing:.04em}header{gap:8px}header nav{gap:8px}header nav a,header nav button{font-size:11px}}
 
 #contact-change-code{font-size:13px;padding:5px 10px;margin-bottom:4px}.contact-section[aria-busy=true] #contact-change-code{opacity:.6}
+
+.intro .product-name{font-size:clamp(13px,2vw,17px);letter-spacing:.02em;margin:0 0 16px;line-height:1.5;color:var(--green)}

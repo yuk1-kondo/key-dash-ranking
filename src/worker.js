@@ -41,7 +41,7 @@ async function route(request, env, now) {
   const identity = await player(request, env.DB);
   if (path === '/v1/runs') {
     const { mode, pack, rules } = await body(request); board(mode, pack);
-    if (rules !== RULES_VERSION) throw new HttpError(409, 'Please update KEY DASH');
+    if (rules !== RULES_VERSION) throw new HttpError(409, 'Please update M5CZT');
     await limit(env.DB, `run:${identity.id}`, 60, 3600000, now);
     const id = crypto.randomUUID(), seed = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
     const expires = now + 10 * 60000;

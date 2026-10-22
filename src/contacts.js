@@ -34,9 +34,9 @@ export async function contactRoute(request, env, now, fingerprint) {
   const data = await body(request), code = normalizeCode(data.code), codeHash = await hash(code);
   const link = await env.DB.prepare(`SELECT l.*,p.name FROM contact_links l JOIN players p ON p.id=l.player_id
     WHERE l.code_hash=?`).bind(codeHash).first();
-  if (!link || now >= link.expires_at) throw new HttpError(410, 'Contact code expired. Get a new code in KEY DASH.');
+  if (!link || now >= link.expires_at) throw new HttpError(410, 'Contact code expired. Get a new code in M5CZT.');
   if (path === '/v1/contact-links/lookup') {
-    if (link.used_at !== null) throw new HttpError(409, 'Contact code already used. Get a new code in KEY DASH.');
+    if (link.used_at !== null) throw new HttpError(409, 'Contact code already used. Get a new code in M5CZT.');
     const contact = await env.DB.prepare('SELECT 1 AS registered FROM player_contacts WHERE player_id=?').bind(link.player_id).first();
     return json({ name: link.name, expires_at: link.expires_at, has_contact: Boolean(contact), purpose: CONTACT_PURPOSE });
   }
@@ -46,7 +46,7 @@ export async function contactRoute(request, env, now, fingerprint) {
   const digest = await hash(JSON.stringify([data.action, email, data.action === 'save' ? CONTACT_PURPOSE : '']));
   if (link.used_at !== null) {
     if (link.request_hash === digest) return json({ action: link.action, saved: link.action === 'save' });
-    throw new HttpError(409, 'Contact code already used. Get a new code in KEY DASH.');
+    throw new HttpError(409, 'Contact code already used. Get a new code in M5CZT.');
   }
   const mutation = data.action === 'save'
     ? env.DB.prepare(`INSERT INTO player_contacts(player_id,email,consent_version,consented_at,updated_at)
@@ -61,6 +61,6 @@ export async function contactRoute(request, env, now, fingerprint) {
       WHERE code_hash=? AND used_at IS NULL AND expires_at>?`).bind(now, digest, data.action, codeHash, now)
   ]);
   const stored = await env.DB.prepare('SELECT request_hash,action FROM contact_links WHERE code_hash=?').bind(codeHash).first();
-  if (stored.request_hash !== digest) throw new HttpError(409, 'Contact code already used. Get a new code in KEY DASH.');
+  if (stored.request_hash !== digest) throw new HttpError(409, 'Contact code already used. Get a new code in M5CZT.');
   return json({ action: stored.action, saved: stored.action === 'save' });
 }
