@@ -37,7 +37,7 @@ Cloudflare認証は公式の `npx wrangler login` で行います。認証ファ
 
 ## 公開
 
-GitHub Pagesは `.github/workflows/pages.yml` により `site/` だけを配信します。APIやDBがPages上で動くわけではありません。
+GitHub Pagesは `.github/workflows/pages.yml` により `site/` をビルドして `dist/site/` を配信します。CSS/JavaScriptのファイル名には内容のハッシュを付け、更新前のキャッシュが残ることを避けます。`npm run build` で同じ静的成果物を生成できます。APIやDBがPages上で動くわけではありません。
 
 ```sh
 npx wrangler d1 execute key-dash-scores --remote --file schema.sql --yes

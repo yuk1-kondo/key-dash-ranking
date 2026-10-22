@@ -2,7 +2,7 @@ name: Publish leaderboard
 on:
   push:
     branches: [main]
-    paths: ['site/**', '.github/workflows/pages.yml']
+    paths: ['site/**', 'scripts/**', 'package.json', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,10 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Build static site
+        run: node scripts/build-site.js
       - uses: actions/configure-pages@v6.0.0
       - uses: actions/upload-pages-artifact@v5.0.0
         with:
-          path: site
+          path: dist/site
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v5.0.1

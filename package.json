@@ -6,7 +6,8 @@
     "test": "node --test tests/*.test.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:local": "wrangler d1 execute key-dash-scores --local --file schema.sql"
+    "db:local": "wrangler d1 execute key-dash-scores --local --file schema.sql",
+    "build": "node scripts/build-site.js"
   },
   "devDependencies": {
     "wrangler": "^4.151.3"
