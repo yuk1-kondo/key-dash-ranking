@@ -52,7 +52,7 @@ npx wrangler deploy
 |---|---|---|
 | GET | `/v1/health` | サービスとルールのバージョン |
 | POST | `/v1/players` | `{name}` → `{id,name,token}`。キーを返すのは作成時だけ |
-| POST | `/v1/runs` | Bearerキー、`{mode:30\|60,pack:"english"\|"code",rules:1}` → シードとチャレンジID |
+| POST | `/v1/runs` | Bearerキー、`{mode:30\|60,pack:"english"\|"code",rules:2}` → シードとチャレンジID |
 | POST | `/v1/runs/:id/score` | 同じBearerキー、`{events:[[経過ms,"キー"],...]}` → サーバー採点結果 |
 | GET | `/v1/leaderboard?mode=30&pack=english` | 上位100人の自己ベスト |
 
@@ -83,7 +83,7 @@ HTTPSの証明書検証を有効にしたクライアントを使ってくださ
 
 ```sql
 SELECT p.name,s.wpm,s.accuracy,c.email,c.consented_at
-FROM scores s JOIN players p ON p.id=s.player_id
+FROM scores_v2 s JOIN players p ON p.id=s.player_id
 LEFT JOIN player_contacts c ON c.player_id=p.id
 WHERE s.mode=30 AND s.pack='english'
 ORDER BY s.wpm DESC,s.accuracy DESC,s.recorded_at ASC,s.player_id ASC
@@ -93,3 +93,9 @@ LIMIT 1;
 LEFT JOINなのでメール未登録の人も順位から除外しません。`email` がNULLなら連絡先は未登録です。存在しても未確認のメールです。取得結果を公開リポジトリ・Issue・ログ共有へ貼り付けないでください。実在の宛先への送信はこのアプリの処理に含まれません。
 
 MIT License.
+
+## 入力・採点ルール2 (v0.4.0)
+
+誤字はミスとしてカウントし、入力位置を進めません。最後の正しい文字で次のワードへ自動遷移します。WPMは実際に保持・確定した文字数のみを5文字単位で換算し、仮想の区切り文字は加算しません。Backspaceは入力済みの正しい文字を戻し、Enterはゲーム中にイベント化しません。
+
+新ランキングは `runs_v2` / `scores_v2` を使用し、`mistakes` を保存・返却します。旧 `runs` / `scores` は保持し、GET `/v1/leaderboard?rules=1` とWebの「旧ルールの記録を見る」から旧スコアを参照できます。POST `/v1/runs` はrules:2を要求します。個別キー・任意メールは共通で保持されます。管理者がプレイヤーを削除する際は旧テーブルに加えscores_v2/runs_v2も削除対象にします。

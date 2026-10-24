@@ -1,5 +1,5 @@
 import dictionaries from './words.json' with { type: 'json' };
-export const RULES_VERSION = 1;
+export const RULES_VERSION = 2;
 export function wordStream(seed, pack) {
   let state = seed >>> 0;
   let previous = '';
@@ -28,16 +28,16 @@ export function replay(run, events) {
     if (key === '\b') { input = input.slice(0, -1); continue; }
     attempts++;
     const character = key.toLowerCase();
-    if (character === ' ') {
-      if (input !== word) continue;
-      correct++; words++; committed += word.length + 1;
-      input = ''; word = next(); continue;
+    if (word[input.length] !== character) continue;
+    correct++;
+    input += character;
+    if (input === word) {
+      words++; committed += word.length;
+      input = ''; word = next();
     }
-    if (input.length < word.length && word[input.length] === character) correct++;
-    if (input.length < word.length + 4) input += character;
   }
   let prefix = 0;
   while (prefix < input.length && prefix < word.length && input[prefix] === word[prefix]) prefix++;
   return { wpm: Math.min(999, Math.floor((committed + prefix) * 12000 / duration)),
-    accuracy: attempts ? Math.floor(correct * 100 / attempts) : 100, words };
+    mistakes: attempts - correct, accuracy: attempts ? Math.floor(correct * 100 / attempts) : 100, words };
 }

@@ -36,19 +36,19 @@ async function register(name = 'TestPlayer') {
   const response = await request('/players', { name }); assert.equal(response.status, 201); return response.data;
 }
 async function challenge(token, mode = 30, pack = 'english', now = 1000000) {
-  const response = await request('/runs', { mode, pack, rules: 1 }, token, now); assert.equal(response.status, 201); return response.data;
+  const response = await request('/runs', { mode, pack, rules: 2 }, token, now); assert.equal(response.status, 201); return response.data;
 }
 function eventsFor(run, count = 8) {
   const next = wordStream(run.seed, run.pack); const events = [];
   let time = 0;
-  for (let i = 0; i < count; i++) for (const key of next() + ' ') { events.push([time, key]); time += 100; }
+  for (let i = 0; i < count; i++) for (const key of next()) { events.push([time, key]); time += 100; }
   return events;
 }
 test('public registration, challenge, score replay, persisted ranking and idempotent retry', async () => {
   const player = await register(), run = await challenge(player.token), events = eventsFor(run);
   const early = await request(`/runs/${run.id}/score`, { events }, player.token, 1000100); assert.equal(early.status, 409);
   const score = await request(`/runs/${run.id}/score`, { events, wpm: 999 }, player.token, 1030000);
-  assert.equal(score.status, 200); assert.deepEqual({ wpm: score.data.wpm, accuracy: score.data.accuracy, words: score.data.words }, replay(run, events));
+  assert.equal(score.status, 200); assert.deepEqual({ wpm: score.data.wpm, accuracy: score.data.accuracy, words: score.data.words, mistakes: score.data.mistakes }, replay(run, events));
   assert.equal(score.data.accuracy, 100); assert.equal(score.data.words, 8); assert.notEqual(score.data.wpm, 999);
   const repeated = await request(`/runs/${run.id}/score`, { events: [] }, player.token, 1031000); assert.deepEqual(repeated.data, score.data);
   const board = await request('/leaderboard?mode=30&pack=english'); assert.equal(board.status, 200); assert.equal(board.data.scores.length, 1); assert.equal(board.data.scores[0].name, player.name);
@@ -59,7 +59,7 @@ test('names are validated and reserved case-insensitively; keys protect each pla
   const player = await register();
   assert.equal((await request('/players', { name: 'testplayer' })).status, 409);
   assert.equal((await request('/players', { name: '<script>' })).status, 400);
-  assert.equal((await request('/runs', { mode: 30, pack: 'english', rules: 1 })).status, 401);
+  assert.equal((await request('/runs', { mode: 30, pack: 'english', rules: 2 })).status, 401);
   const run = await challenge(player.token), second = await register('OtherPlayer');
   assert.equal((await request(`/runs/${run.id}/score`, { events: eventsFor(run) }, second.token, 1030000)).status, 404);
 });
@@ -77,8 +77,8 @@ test('only a personal best replaces the board; 4 independent boards', async () =
 test('expired, invalid mode/version, hostile origins and oversized bodies fail clearly', async () => {
   const player = await register(), run = await challenge(player.token);
   assert.equal((await request(`/runs/${run.id}/score`, { events: eventsFor(run) }, player.token, 2000000)).status, 410);
-  assert.equal((await request('/runs', { mode: 0, pack: 'english', rules: 1 }, player.token)).status, 400);
-  assert.equal((await request('/runs', { mode: 30, pack: 'english', rules: 2 }, player.token)).status, 409);
+  assert.equal((await request('/runs', { mode: 0, pack: 'english', rules: 2 }, player.token)).status, 400);
+  assert.equal((await request('/runs', { mode: 30, pack: 'english', rules: 1 }, player.token)).status, 409);
   assert.equal((await request('/players', { name: 'Nope' }, undefined, 1000000, { Origin: 'https://evil.example' })).status, 403);
   assert.equal((await request('/players', { name: 'A'.repeat(81000) })).status, 413);
 });
@@ -88,7 +88,7 @@ test('per-IP registration rate limit', async () => {
 });
 test('replay matches corrections, rejects late/out-of-order events and never counts erased text twice', () => {
   const run = { seed: 1, mode: 30, pack: 'english' }, next = wordStream(1, 'english'), word = next();
-  const correct = [...word + ' '].map((key, i) => [i * 100, key]);
+  const correct = [...word].map((key, i) => [i * 100, key]);
   const repaired = [[0, 'z'], [100, '\b'], ...correct.map(([t, k]) => [t + 200, k])];
   assert.equal(replay(run, correct).wpm, replay(run, repaired).wpm);
   assert.ok(replay(run, repaired).accuracy < 100);
@@ -147,7 +147,7 @@ test('contact codes require player auth to create, expire exactly, and cannot gr
   const player = await register(), link = await contactLink(player.token);
   assert.equal((await request('/contact-links/lookup', { code: link.code }, undefined, 1600000)).status, 410);
   assert.equal((await request('/contact', { code: link.code, action: 'delete' }, undefined, 1600000)).status, 410);
-  assert.equal((await request('/runs', { mode: 30, pack: 'english', rules: 1 }, link.code)).status, 401);
+  assert.equal((await request('/runs', { mode: 30, pack: 'english', rules: 2 }, link.code)).status, 401);
   assert.equal((await request('/contact-links/lookup', { code: 'guessed' })).status, 400);
 });
 test('a new code replaces an old unused code; only the same contact mutation can be retried', async () => {
@@ -172,4 +172,24 @@ test('contact update and withdrawal affect only the code owner, retaining scores
   assert.equal(env.DB.sqlite.prepare('SELECT count(*) AS n FROM player_contacts WHERE player_id=?').get(owner.id).n, 0);
   assert.equal(env.DB.sqlite.prepare('SELECT count(*) AS n FROM player_contacts WHERE player_id=?').get(other.id).n, 1);
   assert.equal(env.DB.sqlite.prepare('SELECT count(*) AS n FROM players').get().n, 2);
+});
+
+test('strict input blocks incorrect positions, counts every miss and automatically advances', () => {
+  const run = { seed: 1, mode: 30, pack: 'english' }, word = wordStream(1, 'english')();
+  const wrong = word[0] === 'z' ? 'x' : 'z';
+  const events = [[0, wrong], [10, wrong], [20, ' '], ...[...word].map((key, index) => [100 + index * 10, key])];
+  const score = replay(run, events);
+  assert.equal(score.words, 1);
+  assert.equal(score.mistakes, 3);
+  assert.equal(score.wpm, Math.floor(word.length * 12000 / 30000));
+  assert.equal(score.accuracy, Math.floor(word.length * 100 / (word.length + 3)));
+});
+test('legacy scores remain readable, but never mix into the new-rule board', async () => {
+  const player = await register();
+  env.DB.sqlite.prepare('INSERT INTO scores VALUES(?,?,?,?,?,?,?,?)').run(player.id,30,'english',99,100,42,1000000,'legacy-run');
+  assert.equal((await request('/leaderboard')).data.rules, 2);
+  assert.equal((await request('/leaderboard')).data.scores.length, 0);
+  const legacy = await request('/leaderboard?rules=1');
+  assert.equal(legacy.data.rules, 1); assert.equal(legacy.data.scores[0].wpm, 99);
+  assert.equal((await request('/runs', {mode:30,pack:'english',rules:1}, player.token)).status,409);
 });

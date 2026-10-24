@@ -10,10 +10,14 @@ async function route(request, env, now) {
   if (request.method === 'GET' && path === '/v1/leaderboard') {
     const mode = Number(url.searchParams.get('mode') || 30), pack = url.searchParams.get('pack') || 'english';
     board(mode, pack);
-    const { results } = await env.DB.prepare(`SELECT p.name,s.wpm,s.accuracy,s.words,s.recorded_at
-      FROM scores s JOIN players p ON p.id=s.player_id WHERE s.mode=? AND s.pack=?
+    const rules = Number(url.searchParams.get('rules') || RULES_VERSION);
+    if (rules !== 1 && rules !== RULES_VERSION) throw new HttpError(400, 'Unknown scoring rules');
+    const table = rules === 1 ? 'scores' : 'scores_v2';
+    const misses = rules === 1 ? 'NULL' : 's.mistakes';
+    const { results } = await env.DB.prepare(`SELECT p.name,s.wpm,s.accuracy,s.words,${misses} AS mistakes,s.recorded_at
+      FROM ${table} s JOIN players p ON p.id=s.player_id WHERE s.mode=? AND s.pack=?
       ORDER BY s.wpm DESC,s.accuracy DESC,s.recorded_at ASC,s.player_id ASC LIMIT 100`).bind(mode, pack).all();
-    return json({ mode, pack, rules: RULES_VERSION, scores: results.map((score, index) => ({ rank: index + 1, ...score })) });
+    return json({ mode, pack, rules, scores: results.map((score, index) => ({ rank: index + 1, ...score })) });
   }
   if (request.method !== 'POST') throw new HttpError(404, 'Not found');
   // Store a daily hash rather than a raw IP. This is an abuse limit, not identity.
@@ -45,13 +49,13 @@ async function route(request, env, now) {
     await limit(env.DB, `run:${identity.id}`, 60, 3600000, now);
     const id = crypto.randomUUID(), seed = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
     const expires = now + 10 * 60000;
-    await env.DB.prepare('INSERT INTO runs(id,player_id,mode,pack,seed,created_at,expires_at) VALUES(?,?,?,?,?,?,?)')
+    await env.DB.prepare('INSERT INTO runs_v2(id,player_id,mode,pack,seed,created_at,expires_at) VALUES(?,?,?,?,?,?,?)')
       .bind(id, identity.id, mode, pack, seed, now, expires).run();
     return json({ id, seed, mode, pack, rules: RULES_VERSION, expires_at: expires }, 201);
   }
   const match = path.match(/^\/v1\/runs\/([a-f0-9-]{36})\/score$/);
   if (!match) throw new HttpError(404, 'Not found');
-  const run = await env.DB.prepare('SELECT * FROM runs WHERE id=? AND player_id=?').bind(match[1], identity.id).first();
+  const run = await env.DB.prepare('SELECT * FROM runs_v2 WHERE id=? AND player_id=?').bind(match[1], identity.id).first();
   if (!run) throw new HttpError(404, 'Challenge not found');
   if (run.receipt) return json(JSON.parse(run.receipt)); // Idempotent after a lost response.
   if (now > run.expires_at) throw new HttpError(410, 'Challenge expired. Start a new run.');
@@ -63,15 +67,15 @@ async function route(request, env, now) {
   if (!result.wpm || !result.words) throw new HttpError(400, 'Complete at least one word to rank');
   const receipt = JSON.stringify({ ...result, name: identity.name, mode: run.mode, pack: run.pack, recorded_at: now });
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO scores(player_id,mode,pack,wpm,accuracy,words,recorded_at,run_id)
-      SELECT player_id,mode,pack,?,?,?,?,id FROM runs WHERE id=? AND receipt IS NULL
+    env.DB.prepare(`INSERT INTO scores_v2(player_id,mode,pack,wpm,accuracy,words,mistakes,recorded_at,run_id)
+      SELECT player_id,mode,pack,?,?,?,?,?,id FROM runs_v2 WHERE id=? AND receipt IS NULL
       ON CONFLICT(player_id,mode,pack) DO UPDATE SET wpm=excluded.wpm,accuracy=excluded.accuracy,
-      words=excluded.words,recorded_at=excluded.recorded_at,run_id=excluded.run_id
-      WHERE excluded.wpm>scores.wpm OR (excluded.wpm=scores.wpm AND excluded.accuracy>scores.accuracy)`)
-      .bind(result.wpm, result.accuracy, result.words, now, run.id),
-    env.DB.prepare('UPDATE runs SET receipt=? WHERE id=? AND receipt IS NULL').bind(receipt, run.id)
+      words=excluded.words,mistakes=excluded.mistakes,recorded_at=excluded.recorded_at,run_id=excluded.run_id
+      WHERE excluded.wpm>scores_v2.wpm OR (excluded.wpm=scores_v2.wpm AND excluded.accuracy>scores_v2.accuracy)`)
+      .bind(result.wpm, result.accuracy, result.words, result.mistakes, now, run.id),
+    env.DB.prepare('UPDATE runs_v2 SET receipt=? WHERE id=? AND receipt IS NULL').bind(receipt, run.id)
   ]);
-  const stored = await env.DB.prepare('SELECT receipt FROM runs WHERE id=?').bind(run.id).first();
+  const stored = await env.DB.prepare('SELECT receipt FROM runs_v2 WHERE id=?').bind(run.id).first();
   return json(JSON.parse(stored.receipt));
 }
 export async function handle(request, env, now = Date.now()) {
@@ -101,6 +105,7 @@ export default {
     const now = Date.now();
     await env.DB.batch([
       env.DB.prepare('DELETE FROM runs WHERE expires_at<?').bind(now - 86400000),
+      env.DB.prepare('DELETE FROM runs_v2 WHERE expires_at<?').bind(now - 86400000),
       env.DB.prepare('DELETE FROM request_limits WHERE expires_at<?').bind(now),
       env.DB.prepare('DELETE FROM contact_links WHERE expires_at<?').bind(now)
     ]);

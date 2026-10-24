@@ -2,6 +2,7 @@
 const params = new URLSearchParams(location.search);
 let mode = params.get('mode') === '60' ? 60 : 30;
 let pack = params.get('pack') === 'code' ? 'code' : 'english';
+const rules = params.get('rules') === '1' ? 1 : 2;
 let currentRequest, generation = 0;
 const scores = document.querySelector('#scores'), status = document.querySelector('#status');
 const refresh = document.querySelector('#refresh'), board = document.querySelector('#board');
@@ -15,7 +16,11 @@ function selection() {
   document.querySelectorAll('[data-mode]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.mode) === mode)));
   document.querySelectorAll('[data-pack]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.pack === pack)));
   document.querySelector('#board-title').textContent = `${mode}秒・${pack === 'code' ? 'Code' : 'English'} ランキング`;
-  const url = new URL(location.href); url.searchParams.set('mode', mode); url.searchParams.set('pack', pack);
+  const url = new URL(location.href); url.searchParams.set('mode', mode); url.searchParams.set('pack', pack); url.searchParams.set('rules', rules);
+  const other = new URL(url); other.searchParams.set('rules', rules === 1 ? 2 : 1);
+  document.querySelector('#rules-link').href = other;
+  document.querySelector('#rules-link').textContent = rules === 1 ? '新ルールの記録を見る' : '旧ルールの記録を見る';
+  document.querySelector('#rules-label').textContent = rules === 1 ? '旧ルールの保存記録（区切りキーで確定）' : '新ルール：単語を自動確定・ミスをカウント';
   history.replaceState(null, '', url);
 }
 async function load() {
@@ -26,16 +31,21 @@ async function load() {
   message('記録を読み込んでいます。');
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(`${endpoint}/v1/leaderboard?mode=${mode}&pack=${pack}`, { signal: controller.signal, credentials: 'omit', cache: 'no-store' });
+    const response = await fetch(`${endpoint}/v1/leaderboard?mode=${mode}&pack=${pack}&rules=${rules}`, { signal: controller.signal, credentials: 'omit', cache: 'no-store' });
     if (!response.ok) throw new Error('API unavailable');
     const data = await response.json();
     if (version !== generation) return;
-    if (data.mode !== mode || data.pack !== pack || !Array.isArray(data.scores) || data.scores.length > 100) throw new Error('Invalid board');
+    if (data.rules !== rules || data.mode !== mode || data.pack !== pack || !Array.isArray(data.scores) || data.scores.length > 100) throw new Error('Invalid board');
     const rows = data.scores.map(score => {
       if (typeof score.name !== 'string' || !/^[A-Za-z0-9_-]{3,12}$/.test(score.name) || !Number.isInteger(score.wpm) || score.wpm < 0 || score.wpm > 999 || !Number.isInteger(score.accuracy) || score.accuracy < 0 || score.accuracy > 100 || !Number.isInteger(score.rank) || !Number.isFinite(score.recorded_at)) throw new Error('Invalid score');
       const row = document.createElement('tr');
       [score.rank, score.name, score.wpm, `${score.accuracy}%`, dateFormat.format(score.recorded_at)].forEach((value, index) => {
-        const cell = document.createElement('td'); cell.textContent = value; if (index === 4) cell.className = 'date'; row.append(cell);
+        const cell = document.createElement('td'); cell.textContent = value; if (index === 4) cell.className = 'date';
+        if (index === 3 && rules === 2) {
+          if (!Number.isInteger(score.mistakes) || score.mistakes < 0 || score.mistakes > 2400) throw new Error('Invalid misses');
+          const misses = document.createElement('small'); misses.className = 'miss-count'; misses.textContent = `${score.mistakes}ミス`; cell.append(misses);
+        }
+        row.append(cell);
       }); return row;
     });
     if (!rows.length) message('まだ記録がありません。最初のチャレンジャーになろう。');
