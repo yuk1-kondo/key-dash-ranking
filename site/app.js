@@ -1,8 +1,9 @@
 'use strict';
 const params = new URLSearchParams(location.search);
-let mode = params.get('mode') === '60' ? 60 : 30;
-let pack = params.get('pack') === 'code' ? 'code' : 'english';
-const rules = params.get('rules') === '1' ? 1 : 2;
+const archive = params.get('archive') === '1' || params.get('rules') === '1';
+let mode = archive && params.get('mode') === '60' ? 60 : 30;
+let pack = archive && params.get('pack') === 'code' ? 'code' : 'english';
+const rules = archive && params.get('rules') === '1' ? 1 : 2;
 let currentRequest, generation = 0;
 const scores = document.querySelector('#scores'), status = document.querySelector('#status');
 const refresh = document.querySelector('#refresh'), board = document.querySelector('#board');
@@ -17,10 +18,15 @@ function selection() {
   document.querySelectorAll('[data-pack]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.pack === pack)));
   document.querySelector('#board-title').textContent = `${mode}秒・${pack === 'code' ? 'Code' : 'English'} ランキング`;
   const url = new URL(location.href); url.searchParams.set('mode', mode); url.searchParams.set('pack', pack); url.searchParams.set('rules', rules);
-  const other = new URL(url); other.searchParams.set('rules', rules === 1 ? 2 : 1);
+  if (archive) url.searchParams.set('archive', '1');
+  else url.searchParams.delete('archive');
+  const other = new URL(url); other.searchParams.set('archive', '1'); other.searchParams.set('rules', archive ? (rules === 1 ? 2 : 1) : 1);
   document.querySelector('#rules-link').href = other;
-  document.querySelector('#rules-link').textContent = rules === 1 ? '新ルールの記録を見る' : '旧ルールの記録を見る';
-  document.querySelector('#rules-label').textContent = rules === 1 ? '旧ルールの保存記録（区切りキーで確定）' : '新ルール：単語を自動確定・ミスをカウント';
+  document.querySelector('#rules-link').textContent = !archive ? '過去の記録を見る' : rules === 1 ? '以前の自動確定ルールの記録' : '旧ルールの記録';
+  document.querySelector('#rules-label').textContent = !archive ? 'オンラインはEnglish・30秒で挑戦' : rules === 1 ? '過去の記録：区切りキーで確定するルール' : '過去の記録：自動確定ルール';
+  document.querySelector('#archive-filters').hidden = !archive;
+  document.querySelector('#archive-exit').hidden = !archive;
+  document.querySelector('#fixed-board').hidden = archive;
   history.replaceState(null, '', url);
 }
 async function load() {

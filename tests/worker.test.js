@@ -63,16 +63,19 @@ test('names are validated and reserved case-insensitively; keys protect each pla
   const run = await challenge(player.token), second = await register('OtherPlayer');
   assert.equal((await request(`/runs/${run.id}/score`, { events: eventsFor(run) }, second.token, 1030000)).status, 404);
 });
-test('only a personal best replaces the board; 4 independent boards', async () => {
+test('only a personal best replaces the English 30 second board', async () => {
   const player = await register();
   for (const [count, now] of [[8, 1000000], [2, 1100000], [12, 1200000]]) {
     const run = await challenge(player.token, 30, 'english', now);
     assert.equal((await request(`/runs/${run.id}/score`, { events: eventsFor(run, count) }, player.token, now + 30000)).status, 200);
   }
   const board = (await request('/leaderboard')).data.scores; assert.equal(board.length, 1); assert.equal(board[0].words, 12);
-  const run = await challenge(player.token, 60, 'code', 1300000);
-  await request(`/runs/${run.id}/score`, { events: eventsFor(run) }, player.token, 1360000);
-  assert.equal((await request('/leaderboard?mode=60&pack=code')).data.scores.length, 1);
+  for (const [mode, pack] of [[60, 'english'], [30, 'code'], [60, 'code']]) {
+    assert.equal((await request('/runs', {mode,pack,rules:2}, player.token, 1300000)).status,400);
+  }
+  // Previously recorded divisions remain readable as history.
+  env.DB.sqlite.prepare('INSERT INTO scores_v2 VALUES(?,?,?,?,?,?,?,?,?)').run(player.id,60,'code',18,95,6,2,1000000,'history');
+  assert.equal((await request('/leaderboard?mode=60&pack=code')).data.scores[0].wpm,18);
 });
 test('expired, invalid mode/version, hostile origins and oversized bodies fail clearly', async () => {
   const player = await register(), run = await challenge(player.token);
@@ -192,4 +195,11 @@ test('legacy scores remain readable, but never mix into the new-rule board', asy
   const legacy = await request('/leaderboard?rules=1');
   assert.equal(legacy.data.rules, 1); assert.equal(legacy.data.scores[0].wpm, 99);
   assert.equal((await request('/runs', {mode:30,pack:'english',rules:1}, player.token)).status,409);
+});
+
+test('unfinished old Code/60s runs cannot submit a new score after the restriction', async () => {
+  const player = await register(), id = crypto.randomUUID();
+  env.DB.sqlite.prepare('INSERT INTO runs_v2 VALUES(?,?,?,?,?,?,?,?)').run(id,player.id,60,'code',1,1000000,1600000,null);
+  const response = await request(`/runs/${id}/score`, {events:[[0,'a']]}, player.token,1060000);
+  assert.equal(response.status,409);
 });

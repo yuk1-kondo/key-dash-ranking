@@ -46,8 +46,9 @@
         <p>CardputerZeroのタイピング<wbr><span>ランキング</span></p>
       </section>
       <section id="ranking" aria-label="オンラインランキング">
-        <p class="rules-note"><span id="rules-label">新ルール：単語を自動確定・ミスをカウント</span> · <a id="rules-link" href="?rules=1">旧ルールの記録を見る</a></p>
-        <div class="filters">
+        <p class="rules-note"><span id="rules-label">オンラインはEnglish・30秒で挑戦</span> · <a id="rules-link" href="?archive=1&amp;rules=1">過去の記録を見る</a> <a id="archive-exit" href="./" hidden>通常のランキングに戻る</a></p>
+        <p id="fixed-board" class="fixed-board">English <span>30秒</span></p>
+        <div class="filters" id="archive-filters" hidden>
           <fieldset><legend class="sr-only">制限時間</legend><button type="button" data-mode="30" aria-pressed="true">30秒</button><button type="button" data-mode="60" aria-pressed="false">60秒</button></fieldset>
           <fieldset><legend class="sr-only">単語パック</legend><button type="button" data-pack="english" aria-pressed="true">English</button><button type="button" data-pack="code" aria-pressed="false">Code</button></fieldset>
         </div>
@@ -63,7 +64,7 @@
       </section>
       <section class="how-to" id="how-to" aria-labelledby="join-title">
         <h2 id="join-title">参加するには</h2>
-        <ol><li><span>M5CZTを起動</span></li><li><span>オンラインで<br>プレイヤー名を入力</span></li><li><span>30秒または60秒に挑戦</span></li></ol>
+        <ol><li><span>M5CZTを起動</span></li><li><span>オンラインで<br>プレイヤー名を入力</span></li><li><span>English・30秒に挑戦</span></li></ol>
       </section>
     </main>
     <footer><p>記録はオンラインチャレンジから登録されます。</p><details><summary>記録とプレイヤー名について</summary><p>アプリのメニューで「5 Online」を選び、名前を登録してください。GitHubアカウントは不要です。名前は3〜12文字の英数字・_・-が使えます。名前とベストスコア、正確率、記録日が公開されます。</p><p>順位はWPM、正確率、先に記録した日時の順で決まります。WPMは1単語を5文字として計算します。練習モードはランキング対象外です。サーバーは入力履歴から記録を再計算しますが、人間による入力を証明する仕組みではありません。</p><p>プレイヤーキーは端末内に保存されます。アカウントのパスワード復旧機能はありません。端末変更に備え、設定フォルダーのonline-player.jsonを非公開でバックアップしてください。削除を希望する場合は、<a href="https://github.com/yuk1-kondo/key-dash-ranking/issues">ランキング用リポジトリのIssue</a>から管理者にご連絡ください。キーをIssueに貼り付けないでください。</p></details><p class="credits">StackChanのイラストはM5Stack公式K151を参考にした非公式の表現です。Stack-chan: ししかわ・コミュニティ。<a href="https://docs.m5stack.com/en/StackChan">M5Stack公式製品</a> / <a href="https://github.com/stack-chan/stack-chan">作品ページ</a></p></footer>

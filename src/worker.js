@@ -45,6 +45,7 @@ async function route(request, env, now) {
   const identity = await player(request, env.DB);
   if (path === '/v1/runs') {
     const { mode, pack, rules } = await body(request); board(mode, pack);
+    if (mode !== 30 || pack !== 'english') throw new HttpError(400, 'Online challenges are English / 30 seconds only.');
     if (rules !== RULES_VERSION) throw new HttpError(409, 'Please update M5CZT');
     await limit(env.DB, `run:${identity.id}`, 60, 3600000, now);
     const id = crypto.randomUUID(), seed = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
@@ -58,6 +59,7 @@ async function route(request, env, now) {
   const run = await env.DB.prepare('SELECT * FROM runs_v2 WHERE id=? AND player_id=?').bind(match[1], identity.id).first();
   if (!run) throw new HttpError(404, 'Challenge not found');
   if (run.receipt) return json(JSON.parse(run.receipt)); // Idempotent after a lost response.
+  if (run.mode !== 30 || run.pack !== 'english') throw new HttpError(409, 'Start a new English / 30 second challenge.');
   if (now > run.expires_at) throw new HttpError(410, 'Challenge expired. Start a new run.');
   if (now - run.created_at < run.mode * 1000) throw new HttpError(409, 'Challenge has not finished');
   const data = await body(request);
