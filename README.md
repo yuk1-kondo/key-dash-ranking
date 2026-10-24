@@ -1,6 +1,6 @@
-# M5CZT Ranking
+# taM5CZTyping Ranking
 
-CardputerZero向けタイピングゲーム **M5CZT** の公開ランキングです。
+CardputerZero向けタイピングゲーム **taM5CZTyping** の公開ランキングです。
 
 - ランキング: https://yuk1-kondo.github.io/key-dash-ranking/
 - 公開API: https://key-dash-ranking.yukilab-m.workers.dev
